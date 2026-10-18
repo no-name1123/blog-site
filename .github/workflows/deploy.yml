@@ -27,7 +27,7 @@ jobs:
           SOURCE_COMMIT: ${{ github.event.client_payload.sourceCommit }}
         run: echo "公開依頼:dist from ${SOURCE_COMMIT}"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         id: checkout-site
 
       - uses: actions/create-github-app-token@v3
@@ -40,7 +40,7 @@ jobs:
           permission-contents: read
           permission-actions: read
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         id: checkout-content
         with:
           repository: ${{ github.repository_owner }}/blog-content
