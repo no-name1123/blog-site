@@ -1,0 +1,9 @@
+{
+  "siteName": "unassuming",
+  "siteUrl": "https://unassuming.no-name.click",
+  "description": "Markdown で書いた記事を公開する個人ブログです。",
+  "defaultOgImage": "og-default.png",
+  "contentRepo": "no-name1123/blog-content",
+  "analyticsToken": "28f9b836604f4a129c382b5f13013218",
+  "copyright": "© 2026 unassuming"
+}

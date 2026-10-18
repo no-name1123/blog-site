@@ -1,0 +1,6 @@
+node_modules/
+tmp/
+_site/
+# ローカル確認の出力(下書きを含むため公開リポジトリにコミットしない。一時ディレクトリ .local-content.tmp-<pid> も含む)
+.local-content*
+.local-site*

@@ -1,0 +1,236 @@
+# FN-008 サイトの配置(詳細設計 2.3)。生成したサイトを SSH(rsync)で VPS に送り、nginx などの Web サーバで配信する。
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [content-updated]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 公開依頼の内容
+        if: github.event_name == 'repository_dispatch'
+        env:
+          SOURCE_COMMIT: ${{ github.event.client_payload.sourceCommit }}
+        run: echo "公開依頼:dist from ${SOURCE_COMMIT}"
+
+      - uses: actions/checkout@v4
+        id: checkout-site
+
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: blog-content
+          permission-contents: read
+          permission-actions: read
+
+      - uses: actions/checkout@v4
+        id: checkout-content
+        with:
+          repository: ${{ github.repository_owner }}/blog-content
+          ref: dist
+          path: content
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+          # 2.3.1 の git -C content ... がこの認証情報を使う
+          persist-credentials: true
+
+      - name: 最新性の確認
+        id: freshness
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          CONTENT_REPO: ${{ github.repository_owner }}/blog-content
+        run: |
+          set -uo pipefail
+          fail() {
+            echo "$1" > "$RUNNER_TEMP/failure-code.txt"
+            echo "::error::$1 $2"
+            exit 1
+          }
+          read_src() {
+            SRC="$(jq -er '.sourceCommit | select(test("^([0-9a-f]{40}|local)$"))' content/build-info.json 2>/dev/null)" \
+              || fail D002 "変換情報(build-info.json)が正しくありません"
+          }
+          read_head() {
+            HEAD="$(git -C content ls-remote origin refs/heads/main | cut -f1)"
+            [ -n "$HEAD" ] || fail D008 "GitHub API の呼び出しに失敗しました"
+          }
+          count_running() {
+            RUNNING=0
+            for s in queued in_progress waiting requested pending; do
+              status="$(curl -sS -o "$RUNNER_TEMP/runs.json" -w '%{http_code}' \
+                -H "Authorization: Bearer ${APP_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${CONTENT_REPO}/actions/workflows/publish.yml/runs?status=${s}&per_page=1")"
+              [ "$status" = "200" ] || fail D008 "GitHub API の呼び出しに失敗しました(状態 ${status})"
+              RUNNING=$((RUNNING + $(jq -r '.total_count' "$RUNNER_TEMP/runs.json")))
+            done
+          }
+          skip() {
+            echo "::notice::記事の変換が実行中のため、今回は配置しません(完了後に改めて配置されます)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          read_src
+          read_head
+          if [ "$SRC" = "$HEAD" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          count_running
+          [ "$RUNNING" -gt 0 ] && skip
+          # push の直後は実行がまだ作られていないことがあるため、少し待って調べ直す
+          sleep 30
+          count_running
+          [ "$RUNNING" -gt 0 ] && skip
+          git -C content fetch -q --depth 1 origin dist && git -C content checkout -q FETCH_HEAD \
+            || fail D001 "変換結果(dist)が見つからないか、取得できません"
+          read_src
+          read_head
+          if [ "$SRC" = "$HEAD" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          fail D003 "記事用リポジトリの最新の main の変換が失敗しています"
+
+      - uses: actions/setup-node@v4
+        id: setup
+        if: steps.freshness.outputs.skip != 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - id: install
+        if: steps.freshness.outputs.skip != 'true'
+        run: npm ci
+
+      - id: test
+        if: steps.freshness.outputs.skip != 'true'
+        run: npm test
+
+      - name: 生成
+        id: generate
+        if: steps.freshness.outputs.skip != 'true'
+        env:
+          FAILURE_CODE_FILE: ${{ runner.temp }}/failure-code.txt
+        run: node generator/cli.js --content content --out _site --config site.config.json
+
+      - name: SSH の準備
+        id: ssh-setup
+        if: steps.freshness.outputs.skip != 'true'
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
+            echo "::error::シークレット DEPLOY_SSH_KEY・DEPLOY_KNOWN_HOSTS が設定されていません"
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # 接続先の鍵は事前に登録したものだけを信用する(初回接続での自動登録はしない)
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # releases/<版> に送ってから current のリンクを差し替える。送信の途中で失敗しても公開中のサイトは変わらない。
+      # ファイル名を公開ログに出さないため、rsync に -v・--progress を付けない(N-008)
+      - name: サーバへの配置
+        id: deployment
+        if: steps.freshness.outputs.skip != 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          KEEP_RELEASES: 5
+        run: |
+          set -euo pipefail
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ]; then
+            echo "::error::シークレット DEPLOY_HOST・DEPLOY_USER が設定されていません"
+            exit 1
+          fi
+          # リモートのシェルに渡すため、安全な文字だけの絶対パスに限る
+          if ! [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || [[ "$DEPLOY_PATH" == */ ]]; then
+            echo "::error::シークレット DEPLOY_PATH は英数字と ._/- だけの絶対パスにし、末尾に / を付けないでください"
+            exit 1
+          fi
+          RELEASE="$(date -u +%Y%m%d%H%M%S)-${GITHUB_RUN_ID}"
+          # 送信の途中で通信が止まったときに、ジョブのタイムアウト(D010)まで待たず D007 で失敗させる
+          SSH="ssh -i $HOME/.ssh/deploy_key -p ${DEPLOY_PORT:-22} -o BatchMode=yes -o StrictHostKeyChecking=yes"
+          SSH="$SSH -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+          TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
+
+          $SSH "$TARGET" "mkdir -p '${DEPLOY_PATH}/releases/${RELEASE}'"
+          # -L でリンクを実体にする(公開先にリポジトリ外への参照を持ち込まない)
+          rsync -rtL --timeout=120 --chmod=D755,F644 --exclude=.git -e "$SSH" _site/ "${TARGET}:${DEPLOY_PATH}/releases/${RELEASE}/"
+          # mv -T で current を一度に差し替え、古い版は新しい順に KEEP_RELEASES 個だけ残す
+          $SSH "$TARGET" "set -eu
+            cd '${DEPLOY_PATH}'
+            ln -sfn 'releases/${RELEASE}' current.tmp
+            mv -Tf current.tmp current
+            cd releases
+            ls -1 | sort | head -n -${KEEP_RELEASES} | xargs -r rm -rf --"
+          echo "::notice::配置しました(版 ${RELEASE})"
+
+      # timeout-minutes の超過はジョブの取り消しになり failure() が真にならないため cancelled() も入れる
+      - name: 失敗の通知
+        if: failure() || cancelled()
+        uses: actions/github-script@v7
+        env:
+          STEPS: ${{ toJSON(steps) }}
+        with:
+          script: |
+            const fs = require('fs');
+            let messages = { D099: '想定外のエラーが発生しました' };
+            try {
+              ({ MESSAGES: messages } = await import(`file://${process.env.GITHUB_WORKSPACE}/generator/errors.js`));
+            } catch {}
+            let code = '';
+            try {
+              code = fs.readFileSync(`${process.env.RUNNER_TEMP}/failure-code.txt`, 'utf8').trim();
+            } catch {}
+            if (!code) {
+              const steps = JSON.parse(process.env.STEPS);
+              const table = [
+                ['checkout-site', 'D099'], ['app-token', 'D008'], ['checkout-content', 'D001'], ['freshness', 'D099'],
+                ['setup', 'D009'], ['install', 'D009'], ['test', 'D009'], ['generate', 'D099'],
+                ['ssh-setup', 'D007'], ['deployment', 'D007'],
+              ];
+              const failed = table.find(([id]) => steps[id]?.outcome === 'failure');
+              code = failed ? failed[1] : 'D010';
+            }
+            if (!messages[code]) code = 'D099';
+            const text = messages[code] ?? '想定外のエラーが発生しました';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const at = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+            // 公開リポジトリのため、記事のスラッグ・ファイル名・内容は書かない(N-008)
+            const body = [`- 発生日時(JST):${at}`, `- 契機:${context.eventName}`, `- 実行:${runUrl}`, `- コード:${code} ${text}`].join('\n');
+            const { data: open } = await github.rest.issues.listForRepo({
+              ...context.repo, labels: 'deploy-failure', state: 'open', per_page: 1,
+            });
+            if (open.length > 0) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: open[0].number, body });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo, title: `[配置失敗] ${code} ${text}`, body, labels: ['deploy-failure'],
+              });
+            }

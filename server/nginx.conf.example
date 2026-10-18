@@ -1,0 +1,54 @@
+# md-blog を配信する nginx の設定例(詳細設計 2.7)。/etc/nginx/conf.d/md-blog.conf などに置き、
+# server_name・証明書のパス・root を環境に合わせて直す。
+# 証明書の取得後に置く(先に置くと証明書がなく nginx が起動できない。詳細設計 2.9 手順 7-2)。
+# root は deploy.yml のシークレット DEPLOY_PATH の下の current(最新版へのリンク)を指す。
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name blog.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    # nginx 1.25.1 より古い OS のパッケージでも動く書き方(新しい版では非推奨の警告が出るだけ。詳細設計 2.7)
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name blog.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/blog.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/blog.example.com/privkey.pem;
+
+    root /var/www/md-blog/current;
+    index index.html;
+    charset utf-8;
+
+    # 記事ページは相対パスで body.html を読むため、ディレクトリは末尾に / を付けて転送する(nginx の既定動作)。
+    # 転送先はホスト名を含めない相対の Location にする
+    absolute_redirect off;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # search-index.json などの JSON・CSS・JS を圧縮する(text/html は既定で対象)
+    gzip on;
+    gzip_types text/css application/javascript text/javascript application/json image/svg+xml text/plain application/xml;
+
+    # style.css・app.js は名前が固定のため長期キャッシュにせず、毎回 ETag・Last-Modified で再検証させる
+    add_header Cache-Control "no-cache" always;
+
+    # 404.html の CSS・JS・リンクはルートからの絶対パスなので、どの階層でもそのまま表示できる
+    error_page 404 /404.html;
+    location = /404.html {
+        internal;
+    }
+
+    # ドットファイル(.git など)は配信しない
+    location ~ /\. {
+        return 404;
+    }
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; img-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'">
+<title>{{pageTitle}}</title>
+<meta name="description" content="{{description}}">
+<link rel="canonical" href="{{canonicalUrl}}">
+<meta property="og:site_name" content="{{siteName}}">
+<meta property="og:type" content="{{ogType}}">
+<meta property="og:title" content="{{ogTitle}}">
+<meta property="og:description" content="{{description}}">
+<meta property="og:url" content="{{canonicalUrl}}">
+<meta property="og:image" content="{{ogImageUrl}}">
+<meta name="twitter:card" content="summary_large_image">
+{{{extraHead}}}
+<link rel="stylesheet" href="/assets/style.css">
+<script defer src="/assets/app.js"></script>
+{{{analytics}}}
+</head>
+<body data-page="{{pageType}}">
+<header class="site-header">
+  <div class="wrap">
+    <a class="site-name" href="/">{{siteName}}</a>
+    <form class="search" action="/search/" method="get" role="search">
+      <input type="search" name="q" maxlength="100" aria-label="記事を検索" placeholder="記事を検索">
+      <button class="btn" type="submit">検索</button>
+    </form>
+    <nav class="site-nav"><a href="/tags/">タグ・カテゴリ</a></nav>
+  </div>
+</header>
+{{{main}}}
+<footer class="site-footer">
+  <div class="wrap">
+    <p>{{copyright}}</p>
+    <p>このサイトはアクセス解析に Cloudflare Web Analytics を使用しています(Cookie は使用していません)。</p>
+  </div>
+</footer>
+</body>
+</html>

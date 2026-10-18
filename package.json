@@ -1,0 +1,14 @@
+{
+  "name": "blog-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "md-blog のサイト用リポジトリ(ブログ画面・ページ生成スクリプト)",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.js'",
+    "preview": "node generator/cli.js --content .local-content --out .local-site --config site.config.json --local && node generator/serve.js .local-site 8080"
+  }
+}
