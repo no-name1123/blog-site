@@ -111,7 +111,7 @@ jobs:
           fi
           fail D003 "記事用リポジトリの最新の main の変換が失敗しています"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         id: setup
         if: steps.freshness.outputs.skip != 'true'
         with:
