@@ -43,4 +43,7 @@ test('UT-WF-03 App のトークンは blog-content の contents:read・actions:r
   assert.match(withBlock, /repositories: blog-content\n/);
   const perms = [...withBlock.matchAll(/(permission-[a-z-]+): (\w+)/g)].map((x) => `${x[1]}=${x[2]}`).sort();
   assert.deepEqual(perms, ['permission-actions=read', 'permission-contents=read']);
+  // app-id は create-github-app-token v3 で非推奨のため client-id(変数)を使う
+  assert.match(withBlock, /client-id: \$\{\{ vars\.APP_CLIENT_ID \}\}\n/);
+  assert.doesNotMatch(withBlock, /app-id:/);
 });

@@ -60,7 +60,7 @@ DEPLOY_PATH/
 
 | 名前 | 内容 |
 |---|---|
-| `APP_ID`・`APP_PRIVATE_KEY` | blog-content を読む GitHub App(詳細設計 2.9) |
+| `APP_PRIVATE_KEY` | blog-content を読む GitHub App の秘密鍵。Client ID は変数 `APP_CLIENT_ID` に登録する(詳細設計 2.9) |
 | `DEPLOY_HOST` | VPS の IP アドレス(Proxied の公開ドメインは Cloudflare が SSH を中継しないため使えない)。変えたら `DEPLOY_KNOWN_HOSTS` も取り直す |
 | `DEPLOY_PORT` | SSH のポート(任意。既定は 22) |
 | `DEPLOY_USER` | 配置用のユーザー(例 `mdblog-deploy`)。値はログで伏せ字になるため、`deploy` のようにログに頻出する語と重ならない名前にする |
