@@ -194,7 +194,7 @@ jobs:
       # timeout-minutes の超過はジョブの取り消しになり failure() が真にならないため cancelled() も入れる
       - name: 失敗の通知
         if: failure() || cancelled()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           STEPS: ${{ toJSON(steps) }}
         with:
