@@ -1,6 +1,13 @@
 # md-blog を配信する nginx の設定例(詳細設計 2.7)。/etc/nginx/conf.d/md-blog.conf などに置き、
 # server_name・証明書のパス・root を環境に合わせて直す。
-# 証明書の取得後に置く(先に置くと証明書がなく nginx が起動できない。詳細設計 2.9 手順 7-2)。
+# Cloudflare の Origin CA 証明書と、update-cloudflare-allow.sh で作る /etc/nginx/snippets/cloudflare-allow.conf を置いた後に置く
+# (先に置くと、どちらかのファイルがなく nginx -t が失敗する。詳細設計 2.9 手順 7-2)。
+# 読者は Cloudflare のプロキシ経由で接続する。HTTP は Cloudflare で HTTPS に転送されるため、80 番の server は通常使われない。
+# VPS は 80・443 番を他の用途と共用するため、ポートは閉じず、このブログの 443 番の server だけ Cloudflare の IP 範囲に限る
+# (/etc/nginx/snippets/cloudflare-allow.conf を update-cloudflare-allow.sh で作る。詳細設計 2.7、2.9.4)。
+# server の階層の return は allow/deny より先に効くため、80 番の server は Cloudflare 以外にも 301(ブログの内容は返さない)を返す。
+# default_server は付けない(他のサービスの既定の server を奪わないため。nginx -T で確かめる)。
+# set_real_ip_from で接続元の IP を置き換えると、制限が読者の IP で判定されてすべて 403 になるため入れない。
 # root は deploy.yml のシークレット DEPLOY_PATH の下の current(最新版へのリンク)を指す。
 
 server {
@@ -11,13 +18,16 @@ server {
 }
 
 server {
-    # nginx 1.25.1 より古い OS のパッケージでも動く書き方(新しい版では非推奨の警告が出るだけ。詳細設計 2.7)
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    # HTTP/2 は http2 on で、この server だけに効かせる(nginx 1.25.1 以上)。それより古い nginx では
+    # listen 443 ssl http2; と書くが、その場合は同じポートの他の server にも HTTP/2 が効く(詳細設計 2.7)
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name blog.example.com;
+    include /etc/nginx/snippets/cloudflare-allow.conf;
 
-    ssl_certificate     /etc/letsencrypt/live/blog.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/blog.example.com/privkey.pem;
+    ssl_certificate     /etc/ssl/cloudflare/blog.example.com.pem;
+    ssl_certificate_key /etc/ssl/cloudflare/blog.example.com.key;
 
     root /var/www/md-blog/current;
     index index.html;
@@ -44,7 +54,7 @@ server {
         internal;
     }
 
-    # ドットファイル(.git など)は配信しない
+    # ドットファイル(.git など)は配信しない(return は allow/deny より先に効くため、Cloudflare 以外にも 404 を返す。内容は返らない)
     location ~ /\. {
         return 404;
     }
