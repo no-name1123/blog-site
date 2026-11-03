@@ -180,8 +180,8 @@ jobs:
           TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
 
           $SSH "$TARGET" "mkdir -p '${DEPLOY_PATH}/releases/${RELEASE}'"
-          # -L でリンクを実体にする(公開先にリポジトリ外への参照を持ち込まない)
-          rsync -rtL --timeout=120 --chmod=D755,F644 --exclude=.git -e "$SSH" _site/ "${TARGET}:${DEPLOY_PATH}/releases/${RELEASE}/"
+          # リンクは生成の時点で拒否している。rsync でも辿らない(-L を付けない)
+          rsync -rt --timeout=120 --chmod=D755,F644 --exclude=.git -e "$SSH" _site/ "${TARGET}:${DEPLOY_PATH}/releases/${RELEASE}/"
           # mv -T で current を一度に差し替え、古い版は新しい順に KEEP_RELEASES 個だけ残す
           $SSH "$TARGET" "set -eu
             cd '${DEPLOY_PATH}'

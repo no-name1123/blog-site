@@ -43,6 +43,11 @@ export async function verifyContent(contentDir, { assetsDir, maxBytes = SITE_MAX
 
   // D004
   const problems = [];
+  // シンボリックリンクは、公開物にリポジトリ外のファイルを持ち込む経路になるため認めない
+  for (const dir of ['posts', 'data']) {
+    if (await hasSymlink(path.join(contentDir, dir))) problems.push(`${dir} にシンボリックリンクが含まれています`);
+  }
+  if (problems.length > 0) throw new GenError('D004', problems);
   const postsJson = await readJson(path.join(contentDir, 'data', 'posts.json'));
   const searchJson = await readJson(path.join(contentDir, 'data', 'search-index.json'));
   if (!postsJson.ok) problems.push(postsJson.missing ? 'posts.json がありません' : 'posts.json を JSON として読めません');
@@ -134,4 +139,14 @@ export async function dirSize(dir) {
     if (entry.isFile()) total += (await fs.stat(path.join(entry.parentPath, entry.name))).size;
   }
   return total;
+}
+
+/** ディレクトリ配下(自身を含む)にシンボリックリンクがあるか(存在しなければ false) */
+async function hasSymlink(dir) {
+  const top = await fs.lstat(dir).catch(() => null);
+  if (!top) return false;
+  if (top.isSymbolicLink()) return true;
+  if (!top.isDirectory()) return false;
+  const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true });
+  return entries.some((entry) => entry.isSymbolicLink());
 }

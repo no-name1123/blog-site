@@ -68,3 +68,13 @@ test('UT-GN-05 D005 容量(.git と build-info.json は数えない)', async (t)
   assert.equal((await verify(dir, total)).totalBytes, total);
   await expectCode(verify(dir, total - 1), 'D005');
 });
+
+test('D004 posts・data 内のシンボリックリンクは拒否する', async (t) => {
+  const outside = await makeTmp(t);
+  await fs.writeFile(path.join(outside, 'secret.txt'), 'secret');
+  const dir = await makeTmp(t);
+  await writeContent(dir, [post('a')]);
+  await fs.mkdir(path.join(dir, 'posts/a/images'), { recursive: true });
+  await fs.symlink(path.join(outside, 'secret.txt'), path.join(dir, 'posts/a/images/x.png'));
+  await expectCode(verify(dir), 'D004');
+});
