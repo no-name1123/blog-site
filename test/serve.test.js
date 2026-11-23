@@ -39,6 +39,9 @@ test('UT-GN-18 ローカル確認用サーバー', async (t) => {
   const redirect = await get(port, '/posts/x');
   assert.equal(redirect.status, 301);
   assert.equal(redirect.location, '/posts/x/');
+  const doubled = await get(port, '/%2Fposts/x');
+  assert.equal(doubled.status, 301);
+  assert.equal(doubled.location, '/posts/x/');
   for (const p of ['/nothing', '/../package.json', '/%2e%2e/package.json', '/posts/%2E%2E/%2E%2E/package.json']) {
     const res = await get(port, p);
     assert.equal(res.status, 404, p);

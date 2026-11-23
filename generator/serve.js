@@ -59,7 +59,8 @@ export function serve(dir, port) {
     if (stat?.isDirectory()) {
       if (!pathname.endsWith('/')) {
         // 記事ページは相対パスで body.html を読むため、公開サーバ(nginx)と同じく末尾に / を付けて転送する
-        res.writeHead(301, { Location: `${pathname}/` });
+        // 先頭の / を一つにまとめ、//host のようなプロトコル相対の転送先にしない
+        res.writeHead(301, { Location: `/${pathname.replace(/^\/+/, '')}/` });
         return res.end();
       }
       const index = path.join(file, 'index.html');
